@@ -1,0 +1,243 @@
+USE Northwind;
+
+--5.1 Написать процедуру, которая возвращает самый крупный 
+--заказ для каждого из продавцов за определенный год. 
+--без аналитических функций
+--C использованием оператора Select
+go
+create or alter procedure GreatestOrders (@Year int, @Limit int) AS
+select top (@Limit) emp.FirstName, emp.LastName, o.OrderID, OrdersSum.OrderPrice
+from dbo.Orders o
+join 
+	(select ord.OrderID, sum(UnitPrice*Quantity*(1-Discount)) OrderPrice
+	from dbo.[Order Details] ordd
+	join dbo.Orders ord
+	on(ord.OrderID = ordd.OrderID)
+	where year(ord.OrderDate) = @Year 
+	group by ord.OrderID
+	) as OrdersSum
+on (o.OrderID = OrdersSum.OrderID)
+join dbo.Employees emp
+on (o.EmployeeID = emp.EmployeeID)
+where o.OrderID in 
+	(select top (1) ord.OrderID
+	from dbo.[Order Details] ordd
+	join dbo.Orders ord
+	on(ord.OrderID = ordd.OrderID)
+	where year(ord.OrderDate) = @Year 
+	and ord.EmployeeID = o.EmployeeID
+	group by ord.OrderID
+	order by sum(UnitPrice*Quantity*(1-Discount)) desc
+	)
+order by OrderPrice desc;
+
+exec dbo.GreatestOrders 1997, 6;
+
+--написать отдельный ДОПОЛНИТЕЛЬНЫЙ проверочный запрос 
+--для тестирования правильности работы процедуры GreatestOrders. 
+select top 4 * from (
+select top(1) with ties * from (
+select dbo.Employees.FirstName, dbo.Employees.LastName, dbo.Orders.OrderID, SUM(UnitPrice*Quantity*(1-Discount)) as OrderPrice from dbo.[Order Details] join dbo.Orders
+	on (dbo.[Order Details].OrderID = dbo.Orders.OrderID)
+	join dbo.Employees
+	on (dbo.Orders.EmployeeID = dbo.Employees.EmployeeID)
+where year(dbo.Orders.OrderDate) = 1996
+group by dbo.Orders.OrderID, dbo.Employees.FirstName, dbo.Employees.LastName) as PriceTable
+order by rank() over (partition by FirstName, LastName order by OrderPrice desc)) as MaxPriceTable
+order by OrderPrice desc;
+
+select year(ord.OrderDate) from dbo.Orders ord;
+
+
+
+--C bcgjkmpjdfybtv rehcjhf
+
+go
+create or alter procedure GreatestOrdersCur (@Year int, @Limit int) AS
+
+DECLARE @FirstName nvarchar(50), @LastName nvarchar(50), @EmployeeID int
+declare Employee_cur cursor for 
+select emp.FirstName, emp.LastName, emp.EmployeeID from dbo.Employees emp;
+
+CREATE TABLE #EmployeesOrders
+(
+	FirstName VARCHAR(50),
+	LastName VARCHAR(50),
+	OrderID int,
+	OrdersSum int
+)
+
+open Employee_cur
+
+fetch next from Employee_cur
+into @FirstName, @LastName, @EmployeeID
+
+while @@fetch_status = 0
+begin
+	insert into #EmployeesOrders
+	select emp.FirstName, emp.LastName, o.OrderID, OrdersSum.OrderPrice
+	from dbo.Orders o
+	join 
+		(select ord.OrderID, sum(UnitPrice*Quantity*(1-Discount)) OrderPrice
+		from dbo.[Order Details] ordd
+		join dbo.Orders ord
+		on(ord.OrderID = ordd.OrderID)
+		where year(ord.OrderDate) = @Year 
+		group by ord.OrderID
+		) as OrdersSum
+	on (o.OrderID = OrdersSum.OrderID)
+	join dbo.Employees emp
+	on (o.EmployeeID = emp.EmployeeID)
+	where o.OrderID in 
+		(select top (1) ord.OrderID
+		from dbo.[Order Details] ordd
+		join dbo.Orders ord
+		on(ord.OrderID = ordd.OrderID)
+		where year(ord.OrderDate) = @Year 
+		and ord.EmployeeID = @EmployeeID
+		group by ord.OrderID
+		order by sum(UnitPrice*Quantity*(1-Discount)) desc
+		)
+	FETCH NEXT FROM Employee_cur into @FirstName, @LastName, @EmployeeID
+end
+select top (@Limit) * from #EmployeesOrders EO
+order by EO.OrdersSum desc
+close Employee_cur;
+drop table #EmployeesOrders
+deallocate Employee_cur;  
+
+exec dbo.GreatestOrdersCur 1997, 6;
+
+--5.2 Написать процедуру, которая возвращает заказы в таблице Orders, 
+--согласно указанному сроку доставки в днях (разница между OrderDate и ShippedDate).  
+go
+create or alter procedure ShippedOrdersDiff (@Delay int = 35) AS
+select ord.OrderID, 
+	   ord.OrderDate, 
+	   ord.ShippedDate, 
+	   DATEDIFF(dd, 0, ord.ShippedDate - ord.OrderDate) as ShippedDelay,
+	   @Delay as SpecifiedDelay 
+from dbo.Orders ord
+where DATEDIFF(dd, 0, ShippedDate - OrderDate) > @Delay;
+
+exec dbo.ShippedOrdersDiff 10;
+
+ 
+--5.3 Написать функцию, которая определяет, есть ли у продавца подчиненные
+go
+create or alter function IsBoss (@EmployeeID int)
+returns bit  
+as
+begin
+     declare @Boss bit = 0;  
+     if (@EmployeeID in (select emp.ReportsTo from dbo.Employees emp) or
+		 @EmployeeID is null)
+			set @Boss = 1;
+     return(@Boss);
+end;
+
+select dbo.IsBoss (5);
+
+-- 5.4 5.4.	Написать запрос, который должен вывести следующие поля: 
+--OrderID (dbo.Orders), 
+--CustomerID (dbo.Orders), 
+--LastName + FirstName (dbo.Employees), 
+--OrderDate (dbo.Orders), 
+--RequiredDate (dbo.Orders), 
+--ProductName (dbo.Products), 
+--цену товара с учетом скидки. 
+
+go
+create or alter view OrdersInfo as
+select ord.OrderID, ord.CustomerID, emp.FirstName, emp.LastName, ord.OrderDate, ord.RequiredDate, prod.ProductName, ordd.UnitPrice*ordd.Quantity*(1-ordd.Discount) as ProductPrice
+from dbo.Orders ord
+join dbo.Employees emp
+on (ord.EmployeeID = emp.EmployeeID)
+join dbo.[Order Details] ordd
+on (ord.OrderID = ordd.OrderID)
+join dbo.Products prod
+on (ordd.ProductID = prod.ProductID);
+
+select * from dbo.OrdersInfo ord;
+
+--5.5 Создать таблицу dbo.OrdersHistory, которая будет хранить историю
+--изменений по таблице dbo.Orders. 
+go
+drop table if exists OrdersHistory
+create table OrdersHistory (
+  HistoryId int Identity(1,1),
+  [OrderID] int,
+  [CustomerID] nvarchar(5) null,
+  [EmployeeID] int null,
+  [OrderDate] datetime null,
+  [RequiredDate]  datetime null,
+  [ShippedDate]  datetime null,
+  [ShipVia]  int null,
+  [Freight]  money null,
+  [ShipName] nvarchar(40) null,
+  [ShipAddress]  nvarchar(60) null,
+  [ShipCity]  nvarchar(15) null,
+  [ShipRegion]  nvarchar(15) null,
+  [ShipPostalCode]  nvarchar(10) null,
+  [ShipCountry] nvarchar(15) null,
+  ChangesType nvarchar(15) null,
+  ChangedByUser nvarchar(50) null,
+  ChangesTime Datetime
+);
+
+select * from dbo.OrdersHistory ordH;
+
+go
+create or alter trigger OrdersTrigger
+on dbo.Orders 
+after insert, update, delete
+as
+	set nocount on;
+	
+	declare @change_type as varchar(10)
+	declare @count as int
+	set @change_type = 'inserted'
+	select @count = COUNT(*) FROM DELETED del
+	if @count > 0
+	begin
+		set @change_type = 'deleted'
+		select @count = COUNT(*) from INSERTED ins
+		if @Count > 0
+			set @change_type = 'updated'
+	end
+	if @change_type = 'deleted'
+		begin
+			insert into dbo.OrdersHistory(OrderID, CustomerID, EmployeeID, OrderDate,
+				RequiredDate, ShippedDate, ShipVia, Freight, ShipName, ShipAddress,
+				ShipCity, ShipRegion, ShipPostalCode, ShipCountry, ChangesType, ChangedByUser, ChangesTime) 
+				select *, 'deleted', SYSTEM_USER, SYSDATETIME() from deleted del
+		end
+	else 
+		begin
+		if @change_type = 'inserted'
+			begin 
+				insert into dbo.OrdersHistory(OrderID, CustomerID, EmployeeID, OrderDate,
+					RequiredDate, ShippedDate, ShipVia, Freight, ShipName, ShipAddress,
+					ShipCity, ShipRegion, ShipPostalCode, ShipCountry, ChangesType, ChangedByUser, ChangesTime) 
+					select *, 'inserted', SYSTEM_USER, SYSDATETIME() from inserted ins
+			end
+		else 
+			begin
+				insert into dbo.OrdersHistory(OrderID, CustomerID, EmployeeID, OrderDate,
+					RequiredDate, ShippedDate, ShipVia, Freight, ShipName, ShipAddress,
+					ShipCity, ShipRegion, ShipPostalCode, ShipCountry, ChangesType, ChangedByUser, ChangesTime) 
+					select *, 'updates', SYSTEM_USER, SYSDATETIME() from inserted ins
+			end
+		end;
+
+insert into dbo.Orders (EmployeeID, ShipName, ShipRegion)
+select 2, N'ShipShip', N'Russia';
+
+select * from dbo.OrdersHistory ordH;
+
+delete from dbo.Orders
+where OrderID = 12112;
+
+update dbo.Orders
+set EmployeeID = 6 
+where OrderID = 12113;
