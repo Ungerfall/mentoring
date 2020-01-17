@@ -1,53 +1,39 @@
-п»ї/*
-Р’РЅСѓС‚СЂРµРЅРЅРµРµ РєР°С‡РµСЃС‚РІРѕ:
-1. РѕС‚СЃСѓС‚СЃС‚РІСѓСЋС‚ РѕРїРёСЃР°РЅРёСЏ Р·Р°РґР°С‡
-2. Р¤РѕСЂРјР°С‚РёСЂРѕРІР°РЅРёРµ (РєРѕР»РѕРЅРєРё С‚Р°Р±Р»РёС† СЃ РЅРѕРІРѕР№ СЃС‚СЂРѕРєРё, null/not null)
- */
-
---РРЅРёС†РёР°Р»РёР·Р°С†РёСЏ С‚Р°Р±Р»РёС†
-/*
-СЃРєСЂРёРїС‚ РЅРµРІРѕР·РјРѕР¶РЅРѕ Р±СѓРґРµС‚ РїСЂРѕРіРЅР°С‚СЊ РЅРµСЃРєРѕР»СЊРєРѕ СЂР°Р·,
-РїРѕС‚РѕРјСѓ С‡С‚Рѕ РѕС€РёР±РєР° "С‚Р°Р±Р»РёС†Р° СЃСѓС‰РµСЃС‚РІСѓРµС‚"
-РёСЃРїРѕР»СЊР·СѓР№ С‚Р°РєРѕР№ РїР°С‚С‚РµСЂРЅ:
+--
+--Инициализация таблиц
 if (object_id('tempdb..#NameActive') is not null) drop table #NameActive;
-РЅР°Р·РІР°РЅРёРµ С‚Р°Р±Р»РёС†С‹ РЅРµ СЃР°РјРѕРµ СѓРґР°С‡РЅРѕРµ
- */
-create table #NameActive
-(CounterpartyID int primary key identity,
-Name varchar(255),
-IsActive bit
+create table #NameActive(
+	CounterpartyID int primary key identity,
+	Name varchar(255) not null,
+	IsActive bit not null
 )
 
-insert into #NameActive
+insert into #NameActive (Name, IsActive)
 values ('Ivanov', 1),
 		('Petrov', 0),
-		('Sidorov', 1)	;
+		('Sidorov', 1);
 
-create table #transaction
-(
-TransID int	primary key identity,
-TransDate date,
-RcvID int,
-SndID int,
-AssetID int,
-Quantity numeric(19, 8)
+if (object_id('tempdb..#transaction') is not null) drop table #transaction;
+create table #transaction(
+	TransID int	primary key identity,
+	TransDate date not null,
+	RcvID int not null,
+	SndID int not null,
+	AssetID int not null,
+	Quantity numeric(19, 8) not null
 )
 
-/*
-1. ansi С„РѕСЂРјР°С‚ РґР»СЏ РґР°С‚
-2. РєРѕР»РѕРЅРєРё С‚Р°Р±Р»РёС†С‹ РІ РєРѕС‚РѕСЂС‹Рµ РґР°РЅРЅС‹Рµ РІСЃС‚Р°РІР»СЏСЋС‚СЃСЏ
- */
-insert into #transaction
-values ('01.01.2012', 1,	2,	1,	100),
-('02.01.2012',	1,	3,	2,	150),
-('03.01.2012',	3,	1,	1,	300),
-('04.01.2012',	2,	1,	3,	50);
+insert into #transaction (TransDate, RcvID, SndID, AssetID, Quantity)
+values ('2012-01-01', 1,	2,	1,	100),
+		('2012-02-01',	1,	3,	2,	150),
+		('2012-03-01',	3,	1,	1,	300),
+		('2012-04-01',	2,	1,	3,	50);
 
 select * from #NameActive;
 select * from #transaction;
 
---6.1 СѓС‚РѕС‡РЅРёРј, С‡С‚Рѕ СЃРёС‚СѓР°С†РёСЏ, РєРѕРіРґР° РїРѕР»СЊР·РѕРІР°С‚РµР»СЊ РїРµСЂРµРІРѕРґРёС‚ СЃР°Рј СЃРµР±Рµ - РёСЃРєР»СЋС‡РµРЅР°
---1)
+--6.1 уточним, что ситуация, когда пользователь переводит сам себе - исключена
+--1)1)	Отобрать активные счета по которым есть проводки как минимум по двум разным активам.
+--Выводимые поля: CounterpartyID, Name, Cnt(количество уникальных активов по которым есть проводки)
 with all_trans 
 as(
 	select RcvID as unit, AssetID from #transaction
@@ -63,7 +49,8 @@ on all_trans.unit = na.CounterpartyID
 and na.IsActive = 1
 group by na.CounterpartyID, na.Name;
 
---2)
+--2)2)	Посчитать суммарное число актива, образовавшееся на активных счетах, в результате 
+--проведенных проводок. Выводимые поля: CounterpartyID, Name, AssetID, Quantity 
 with all_trans 
 as(
 	select RcvID as unit, AssetID, -Quantity qa from #transaction
@@ -81,7 +68,8 @@ and na.IsActive = 1
 group by na.CounterpartyID, na.Name, all_trans.AssetID
 order by na.CounterpartyID;
 
---3)
+--3)3)	Посчитать средний дневной оборот по всем счетам по всем проводкам считая что
+--AssetID во всех проводках одинаковый. Выводимые поля: CounterpartyID, Name, Oborot
 with all_trans 
 as(
 	select RcvID as unit, TransDate trans_date, -Quantity qa from #transaction
@@ -98,7 +86,8 @@ group by na.CounterpartyID, na.Name
 order by na.CounterpartyID;
 
 
---4)
+--4)4)	Посчитать средний месячный оборот по всем счетам по всем проводкам считая что
+--AssetID во всех проводках одинаковый. Выводимые поля: CounterpartyID, Name, Oborot
 with all_trans 
 as(
 	select RcvID as unit, TransDate trans_date, -Quantity qa from #transaction
@@ -114,7 +103,11 @@ on all_trans.unit = na.CounterpartyID
 group by na.CounterpartyID, na.Name
 order by na.CounterpartyID;
 
---6.2
+--6.2 По таблице dbo.Employees для каждого руководителя найти подчиненных на всех уровнях иерархии подчинения 
+--(напряму и через других подчиненных). Вывести руководителя, подчиненного, непосредственного руководителя и уровень подчинения. 
+--Для построения иерархии в таблице используются поля EmploeeID и ReportsTo.
+--Необходимо использовать рекурсивыный CTE.
+
 
 declare @boss as nvarchar = (select emp.EmployeeID from dbo.Employees emp where emp.ReportsTo is null);
 declare @bossName as nvarchar(10) = (select emp.LastName from dbo.Employees emp where emp.EmployeeID = @boss);
